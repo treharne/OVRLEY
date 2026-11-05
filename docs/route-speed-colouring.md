@@ -1,0 +1,76 @@
+# Route speed colouring
+
+Select a Route Map and enable **Colour route by speed** under Line Styling.
+The default palette runs from blue through cyan and yellow to red. Click or drag
+colour stops to edit the colours and their positions; the existing gradient editor
+supports two to five stops. Speed colouring is off by default.
+
+The default range is **0 km/h to the highest valid speed in the entire activity**.
+Leave Maximum speed empty for this automatic maximum, or enter manual minimum
+and maximum speeds (in km/h). Exporting a smaller time range does not recalculate
+the maximum. Each activity has its own automatic range. Values outside a manual
+range clamp to its endpoint colours. Stationary activities use the slow colour.
+
+Both finished and remaining paths use the same historical speed colours, with
+their existing independent thickness and opacity. Marker styling is independent.
+Solid Finished/Remaining Color settings remain the fallback wherever speed is
+missing. Missing, negative and non-finite speeds are not converted to zero.
+Existing route projection, smoothing and GPS-gap behaviour are unchanged.
+At a crossing, later route segments paint over earlier ones as before.
+
+Templates store an optional `speed_coloring` block on the `course` plot:
+
+```json
+{
+  "speed_coloring": {
+    "enabled": true,
+    "min_speed_kmh": 0,
+    "max_speed_kmh": null,
+    "stops": [
+      { "offset": 0, "color": "#2563eb" },
+      { "offset": 0.333333, "color": "#06b6d4" },
+      { "offset": 0.666667, "color": "#facc15" },
+      { "offset": 1, "color": "#ef4444" }
+    ]
+  }
+}
+```
+
+Older templates without this block keep solid colouring, including direct native
+renderer configurations. Frontend template normalization supplies the disabled
+settings so the editor can enable them. The native renderer validates ranges and
+palette colours/offsets at ingress.
+
+The shared widget engine handles app preview and native export. Speed samples
+remain separate from simplified route geometry. Drawing segments split at
+geometric vertices, telemetry samples and palette thresholds, so straight roads
+do not lose speed peaks. Paints and paths are prepared once per layout; the
+remaining route is raster-cached. Contiguous colour polygons share their edges
+and are clipped to the rounded route outline. Only the assembled outline is
+antialiased, and opacity is applied once, avoiding dots and cracks between dense
+samples while keeping rounded line ends and progress markers.
+
+## Checks
+
+```sh
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm --dir app test
+cd src-tauri
+cargo test --locked --release -p ovrley_widgets -p ovrley_core --lib
+cargo build --locked --release -p ovrley_core --bin render_video --bin render_preview
+```
+
+The core atlas composite test expects an ignored video fixture at
+`src-tauri/ovrley_core/tests/fixtures/video/test-1080p.mp4`. If absent, create a
+synthetic 1920x1080 H.264 fixture with FFmpeg (no personal footage is needed):
+
+```sh
+mkdir -p ovrley_core/tests/fixtures/video
+ffmpeg -n -f lavfi -i 'testsrc2=size=1920x1080:rate=30000/1001' \
+  -f lavfi -i 'sine=frequency=440:sample_rate=48000' -t 2 \
+  -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p -c:a aac \
+  ovrley_core/tests/fixtures/video/test-1080p.mp4
+```
+
+Production app packaging also needs the SDK versions in `scripts/build-wasm.mjs`
+and an `EMSDK` path in `.env.local`; see the existing app build documentation.

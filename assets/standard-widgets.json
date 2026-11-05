@@ -446,6 +446,29 @@
         "simplify_tolerance_px": 0.3,
         "target_density": 1,
         "show_full_activity": true,
+        "speed_coloring": {
+          "enabled": false,
+          "min_speed_kmh": 0,
+          "max_speed_kmh": null,
+          "stops": [
+            {
+              "offset": 0,
+              "color": "#2563eb"
+            },
+            {
+              "offset": 0.333333,
+              "color": "#06b6d4"
+            },
+            {
+              "offset": 0.666667,
+              "color": "#facc15"
+            },
+            {
+              "offset": 1,
+              "color": "#ef4444"
+            }
+          ]
+        },
         "marker_variant": "single",
         "marker_variant_diameter": 44,
         "marker_size": 10,

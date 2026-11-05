@@ -56,6 +56,7 @@ pub struct RouteActivity {
     longitude: Vec<(f64, f64)>,
     progress: Vec<(f64, f64)>,
     full: Arc<Vec<RouteSample>>,
+    speed: Vec<Option<f64>>,
     pub end: f64,
 }
 
@@ -79,6 +80,7 @@ impl RouteActivity {
                 .collect()
         };
         Self {
+            speed: Vec::new(),
             times: times.to_vec(),
             course: course.to_vec(),
             end,
@@ -91,6 +93,43 @@ impl RouteActivity {
                 .zip(progress.iter().copied())
                 .filter(|p| p.1.is_finite())
                 .collect(),
+        }
+    }
+
+    /// Canonical speeds are metres/second, aligned with the activity timestamps.
+    pub fn with_speeds(mut self, speed: &[Option<f64>]) -> Self {
+        self.speed = speed.iter().map(|value| value.filter(|v| v.is_finite() && *v >= 0.0)).collect();
+        self
+    }
+
+    /// Retain telemetry density independently of geometric simplification. The
+    /// maximum always uses the full activity, even for a cropped route window.
+    pub fn speed_profile(&self, window: Option<RouteWindow>) -> super::speed::SpeedProfile {
+        let mut points: Vec<(f32, Option<f64>)> = Vec::new();
+        for (index, time) in self.times.iter().enumerate() {
+            let progress = if let Some(window) = window {
+                let start = self.progress_at(window.start, None) as f64;
+                let end = self.progress_at(window.end, None) as f64;
+                if end > start {
+                    ((self.progress_at(*time, None) as f64 - start) / (end - start)) as f32
+                } else {
+                    ((*time - window.start) / (window.end - window.start)) as f32
+                }
+            } else {
+                self.progress_at(*time, None)
+            };
+            let speed = self.speed.get(index).copied().flatten().map(|v| v * 3.6);
+            // Stationary samples share progress: retain the last observation at
+            // that location, without introducing zero-length paint segments.
+            if let Some(last) = points.last_mut().filter(|last| last.0 == progress) {
+                *last = (progress, speed);
+            } else {
+                points.push((progress, speed));
+            }
+        }
+        super::speed::SpeedProfile {
+            points,
+            maximum_kmh: self.speed.iter().flatten().copied().fold(0.0, f64::max) * 3.6,
         }
     }
 

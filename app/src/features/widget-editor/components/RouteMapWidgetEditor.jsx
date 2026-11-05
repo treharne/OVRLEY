@@ -2,9 +2,11 @@
  * Supports widget editing flows related to route map widget editor.
  */
 
+import { useState } from 'react'
+import GradientPicker from '@/components/ui/gradient-picker'
 import { Palette } from 'lucide-react'
 import { SectionHeading } from '@/components/ui/section-heading'
-import { ColorField, SliderField, ToggleField } from './widgetFormControls'
+import { ColorField, NumberField, SliderField, ToggleField } from './widgetFormControls'
 import { DimensionsSection } from './widgetEditorSections'
 import PlotMarkerSection from './PlotMarkerSection'
 import { getThemeColor } from '@/lib/color-utils'
@@ -23,6 +25,26 @@ import { normalizeRotation } from '@/features/wasm-widgets/utils/widgetGestureGe
  */
 export default function RouteMapWidgetEditor({ widget, updateWidgetData, updateWidgetDraft, commitWidgetDraft, setNumericField }) {
   const { t } = useTranslation()
+  const [speedRangeError, setSpeedRangeError] = useState(null)
+  const speedColoring = widget.data.speed_coloring
+  const updateSpeedColoring = (patch) =>
+    updateWidgetData(widget.id, {
+      speed_coloring: { ...speedColoring, ...patch },
+    })
+  const updateSpeedBound = (key, raw) => {
+    const value = raw === '' && key === 'max_speed_kmh' ? null : Number(raw)
+    if (value !== null && (!Number.isFinite(value) || value < 0)) {
+      setSpeedRangeError(t('widget-editor.routeSpeedInvalidValue', 'Speed must be a finite non-negative number.'))
+      return
+    }
+    const next = { ...speedColoring, [key]: value }
+    if (next.max_speed_kmh !== null && next.max_speed_kmh <= next.min_speed_kmh) {
+      setSpeedRangeError(t('widget-editor.routeSpeedInvalidRange', 'Maximum speed must be greater than minimum speed.'))
+      return
+    }
+    setSpeedRangeError(null)
+    updateSpeedColoring({ [key]: value })
+  }
   const lineWidth = widget.data.completed_line_width ?? widget.data.remaining_line_width
   const completedLineOpacity = widget.data.completed_line_opacity
   const remainingLineOpacity = widget.data.remaining_line_opacity
@@ -101,6 +123,57 @@ export default function RouteMapWidgetEditor({ widget, updateWidgetData, updateW
             onSliderCommit={() => commitWidgetDraft(widget.id)}
           />
         </div>
+        <div className="flex items-center justify-between gap-2">
+          <Label className="text-xs text-muted-foreground">{t('widget-editor.routeSpeedColoring', 'Colour route by speed')}</Label>
+          <ToggleField
+            label={t('widget-editor.routeSpeedColoring', 'Colour route by speed')}
+            checked={speedColoring.enabled}
+            onCheckedChange={(enabled) => {
+              setSpeedRangeError(null)
+              updateSpeedColoring({ enabled })
+            }}
+          />
+        </div>
+        {speedColoring.enabled ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4" onBlurCapture={() => setSpeedRangeError(null)}>
+              <NumberField
+                label={t('widget-editor.routeSpeedMinimum', 'Minimum speed (km/h)')}
+                value={speedColoring.min_speed_kmh}
+                min={0}
+                step={0.1}
+                integerDisplay={false}
+                onChange={(raw) => updateSpeedBound('min_speed_kmh', raw)}
+              />
+              <NumberField
+                label={t('widget-editor.routeSpeedMaximum', 'Maximum speed (km/h)')}
+                value={speedColoring.max_speed_kmh ?? ''}
+                min={speedColoring.min_speed_kmh}
+                step={0.1}
+                integerDisplay={false}
+                placeholder={t('widget-editor.routeSpeedAutomatic', 'Activity maximum')}
+                onChange={(raw) => updateSpeedBound('max_speed_kmh', raw)}
+              />
+            </div>
+            {speedRangeError ? (
+              <p role="alert" className="text-xs text-destructive">
+                {speedRangeError}
+              </p>
+            ) : null}
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'widget-editor.routeSpeedRangeHelp',
+                'Leave maximum empty to use the highest speed in the full activity. Missing speed uses the solid route colours.',
+              )}
+            </p>
+            <GradientPicker
+              label={t('widget-editor.routeSpeedPalette', 'Speed colours: slow to fast')}
+              stops={speedColoring.stops}
+              onChange={(stops) => updateWidgetDraft(widget.id, { speed_coloring: { ...speedColoring, stops } })}
+              onCommit={() => commitWidgetDraft(widget.id)}
+            />
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-4">
           <ColorField
             label={t('widget-editor.finishedColor', 'Finished Color')}

@@ -41,6 +41,7 @@ pub struct RouteLayout {
     scale: [f32; 2],
     completed_paint: Paint,
     marker: PlotMarker,
+    speed_route: Option<super::speed::SpeedRoute>,
 }
 
 struct RemainingStroke {
@@ -160,6 +161,7 @@ impl RouteLayout {
         scene: ValidatedScenePresentation,
         geometry: Arc<RouteGeometry>,
         raster_scale: PreviewRasterScale,
+        speed_profile: Option<super::speed::SpeedProfile>,
     ) -> WidgetResult<Self> {
         let RemainingStroke {
             scale,
@@ -168,6 +170,10 @@ impl RouteLayout {
             blur,
             bounds: remaining_bounds,
         } = Self::remaining_stroke(&config, &scene, &geometry);
+        let speed_route = config.speed_coloring.as_ref().filter(|c| c.enabled)
+            .zip(speed_profile).map(|(color, profile)| {
+                super::speed::SpeedRoute::new(&geometry, color, &profile, &config, &scene, scale[0])
+            }).transpose()?;
         // Cache at the final angle so playback can blit without resampling a rotated
         // bitmap every frame. Positions stay relative to the widget for cheap dragging.
         let remaining_image_bounds =
@@ -196,10 +202,14 @@ impl RouteLayout {
                 }
                 canvas.save();
                 canvas.scale((scale[0], scale[1]));
-                canvas.draw_path(
-                    &path,
-                    &stroke_paint(&config.remaining_line_color, width / scale[0], opacity),
-                );
+                if let Some(route) = &speed_route {
+                    route.draw(canvas, 1.0, false);
+                } else {
+                    canvas.draw_path(
+                        &path,
+                        &stroke_paint(&config.remaining_line_color, width / scale[0], opacity),
+                    );
+                }
                 canvas.restore();
                 Ok(())
             },
@@ -222,6 +232,7 @@ impl RouteLayout {
             scale,
             completed_paint,
             marker,
+            speed_route,
         })
     }
 
@@ -274,10 +285,14 @@ impl RouteLayout {
         self.remaining.draw(canvas, None);
         canvas.rotate(self.config.rotation, None);
         let scale = self.scale;
-        let completed: Path = self.geometry.completed_path(&frame.state);
         canvas.save();
         canvas.scale((scale[0], scale[1]));
-        canvas.draw_path(&completed, &self.completed_paint);
+        if let Some(route) = &self.speed_route {
+            route.draw(canvas, frame.state.progress01, true);
+        } else {
+            let completed: Path = self.geometry.completed_path(&frame.state);
+            canvas.draw_path(&completed, &self.completed_paint);
+        }
         canvas.restore();
         let point = (
             frame.state.marker_x * scale[0],

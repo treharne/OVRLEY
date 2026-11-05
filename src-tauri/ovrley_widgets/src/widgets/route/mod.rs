@@ -5,6 +5,7 @@ pub mod interaction;
 pub mod layout;
 pub mod preview;
 pub mod sampling;
+pub mod speed;
 pub mod validation;
 
 #[cfg(test)]

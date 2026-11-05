@@ -25,6 +25,9 @@ pub struct CoursePlotConfig {
     pub marker_color: String,
     pub marker_opacity: f32,
     pub show_full_activity: bool,
+    /// Absent in older templates: preserve the solid-colour route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed_coloring: Option<super::speed::SpeedColorConfig>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }

@@ -243,8 +243,10 @@ impl PreviewRoute {
             self.layout = Some(RouteLayout::new(
                 self.config.clone(),
                 self.scene.clone(),
-                geometry,
+                geometry.clone(),
                 self.preview_raster_scale,
+                activity.filter(|_| geometry.source_point_count > 0 && self.config.speed_coloring.as_ref().is_some_and(|c| c.enabled))
+                    .map(|activity| activity.route.speed_profile(self.window)),
             )?);
         }
         Ok(changed)

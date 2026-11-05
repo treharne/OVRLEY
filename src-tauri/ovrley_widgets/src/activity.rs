@@ -273,7 +273,7 @@ impl ActivitySampler {
             &activity.sample_course_points,
             &activity.sample_distance_progress,
             activity.trim_end_seconds,
-        );
+        ).with_speeds(&numeric[&MetricKind::Speed].values);
         let mut sampler = Self {
             diving,
             elevation,

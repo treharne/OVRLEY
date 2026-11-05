@@ -229,6 +229,9 @@ function normalizePlot(plot = {}, config, globalDefaults) {
   const type = plot.value
   if (WIDGET_TYPE_DEFINITIONS[type]?.collection !== 'plots') throw new Error(`Unknown plot widget type: ${type}`)
   const withDefaults = { ...WIDGET_TYPE_DEFINITIONS[type].defaults, ...plot }
+  if (type === 'course') {
+    withDefaults.speed_coloring = { ...WIDGET_TYPE_DEFINITIONS.course.defaults.speed_coloring, ...plot.speed_coloring }
+  }
   if (type === 'elevation' || type === 'diving_profile') {
     withDefaults.point_label = normalizePointLabel(plot.point_label, config, globalDefaults)
   }

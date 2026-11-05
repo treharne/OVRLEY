@@ -33,6 +33,7 @@ pub struct ValidatedRoutePlot {
     pub marker_color: String,
     pub marker_opacity: f32,
     pub show_full_activity: bool,
+    pub speed_coloring: Option<super::speed::SpeedColorConfig>,
 }
 
 pub fn validate_route_plot(
@@ -87,6 +88,9 @@ pub fn validate_route_plot(
         &p("marker_variant_diameter"),
     )?;
 
+    let speed_coloring = plot.speed_coloring.as_ref()
+        .map(|config| config.validate(&p("speed_coloring"))).transpose()?;
+
     Ok(ValidatedRoutePlot {
         x: require_f32(Some(plot.x), &p("x"))?,
         y: require_f32(Some(plot.y), &p("y"))?,
@@ -107,5 +111,6 @@ pub fn validate_route_plot(
         marker_color,
         marker_opacity,
         show_full_activity: plot.show_full_activity,
+        speed_coloring,
     })
 }

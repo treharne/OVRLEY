@@ -81,7 +81,7 @@ impl ParsedActivity {
             &self.sample_course_points,
             &self.sample_distance_progress,
             self.trim_end_seconds,
-        )
+        ).with_speeds(&self.speed)
     }
 
     pub fn elevation_activity(&self) -> ElevationActivity {
