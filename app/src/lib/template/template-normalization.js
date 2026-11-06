@@ -233,10 +233,13 @@ function normalizePlot(plot = {}, config, globalDefaults) {
   if (type === 'course') {
     const defaults = WIDGET_TYPE_DEFINITIONS.course.defaults.speed_coloring
     const saved = plot.speed_coloring
+    if (saved && (Object.hasOwn(saved, 'min_speed_kmh') || Object.hasOwn(saved, 'max_speed_kmh'))) {
+      throw new Error('Route speed bounds now use m/s. Convert this template with scripts/migrate-route-speed-template.mjs.')
+    }
     const settings = { ...defaults, ...saved }
     if (!routeSpeedUnit(settings.unit)) throw new Error(`Unsupported route speed unit: ${settings.unit}`)
     const matchesAuto =
-      settings.min_speed_kmh === 0 && settings.max_speed_kmh === null && JSON.stringify(settings.stops) === JSON.stringify(defaults.stops)
+      settings.min_speed_mps === 0 && settings.max_speed_mps === null && JSON.stringify(settings.stops) === JSON.stringify(defaults.stops)
     withDefaults.speed_coloring = { ...settings, mode: saved?.mode ?? (matchesAuto ? 'auto' : 'custom') }
   }
   if (type === 'elevation' || type === 'diving_profile') {

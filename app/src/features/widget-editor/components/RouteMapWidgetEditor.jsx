@@ -51,11 +51,11 @@ export default function RouteMapWidgetEditor({ widget, updateWidgetData, updateW
   const speedSeries = useStore((state) => state.parsedActivity?.speed)
   const activityMaximum = useMemo(() => {
     const valid = (speedSeries ?? []).filter((speed) => Number.isFinite(speed) && speed >= 0)
-    return valid.length ? Number((valid.reduce((maximum, speed) => Math.max(maximum, speed), 0) * 3.6).toPrecision(12)) : null
+    return valid.length ? Number(valid.reduce((maximum, speed) => Math.max(maximum, speed), 0).toPrecision(12)) : null
   }, [speedSeries])
   const custom = speedColoring.mode === 'custom'
-  const maximum = speedColoring.max_speed_kmh ?? activityMaximum
-  const span = maximum === null ? 0 : maximum - speedColoring.min_speed_kmh
+  const maximum = speedColoring.max_speed_mps ?? activityMaximum
+  const span = maximum === null ? 0 : maximum - speedColoring.min_speed_mps
   const updateSpeedColoring = (patch) =>
     updateWidgetData(widget.id, {
       speed_coloring: { ...speedColoring, ...patch },
@@ -74,8 +74,8 @@ export default function RouteMapWidgetEditor({ widget, updateWidgetData, updateW
       )
       return
     }
-    const next = { ...speedColoring, max_speed_kmh: maximum, [key]: value }
-    if (next.max_speed_kmh !== null && next.max_speed_kmh <= next.min_speed_kmh) {
+    const next = { ...speedColoring, max_speed_mps: maximum, [key]: value }
+    if (next.max_speed_mps !== null && next.max_speed_mps <= next.min_speed_mps) {
       setSpeedRangeError(
         pace
           ? t('widget-editor.routeSpeedInvalidPaceRange', 'Fast pace must be faster than slow pace.')
@@ -84,20 +84,20 @@ export default function RouteMapWidgetEditor({ widget, updateWidgetData, updateW
       return
     }
     setSpeedRangeError(null)
-    updateSpeedColoring({ max_speed_kmh: maximum, [key]: value })
+    updateSpeedColoring({ max_speed_mps: maximum, [key]: value })
   }
   const changeMode = (mode) => {
     if (!mode) return
     setSpeedRangeError(null)
     const patch = { mode }
-    if (mode === 'custom' && speedColoring.max_speed_kmh === null && activityMaximum > speedColoring.min_speed_kmh) {
-      patch.max_speed_kmh = activityMaximum
+    if (mode === 'custom' && speedColoring.max_speed_mps === null && activityMaximum > speedColoring.min_speed_mps) {
+      patch.max_speed_mps = activityMaximum
     }
     updateSpeedColoring(patch)
   }
   const changeThreshold = (index, raw) => {
     const speed = parseRouteSpeed(raw, unit.value)
-    const offset = speed === null ? NaN : (speed - speedColoring.min_speed_kmh) / span
+    const offset = speed === null ? NaN : (speed - speedColoring.min_speed_mps) / span
     if (
       raw === '' ||
       !Number.isFinite(offset) ||
@@ -110,7 +110,7 @@ export default function RouteMapWidgetEditor({ widget, updateWidgetData, updateW
     }
     setSpeedRangeError(null)
     const stops = speedColoring.stops.map((stop, i) => (i === index ? { ...stop, offset } : stop)).sort((a, b) => a.offset - b.offset)
-    updateSpeedColoring({ stops, max_speed_kmh: maximum })
+    updateSpeedColoring({ stops, max_speed_mps: maximum })
   }
   const lineWidth = widget.data.completed_line_width ?? widget.data.remaining_line_width
   const completedLineOpacity = widget.data.completed_line_opacity
@@ -235,12 +235,12 @@ export default function RouteMapWidgetEditor({ widget, updateWidgetData, updateW
                         ? t('widget-editor.routeSpeedSlowPace', 'Slow pace ({{unit}})', { unit: unit.label })
                         : t('widget-editor.routeSpeedMinimum', 'Minimum speed ({{unit}})', { unit: unit.label })
                     }
-                    value={speedColoring.min_speed_kmh}
+                    value={speedColoring.min_speed_mps}
                     unit={unit.value}
                     min={0}
                     step={0.1}
                     integerDisplay={false}
-                    onChange={(raw) => updateSpeedBound('min_speed_kmh', raw)}
+                    onChange={(raw) => updateSpeedBound('min_speed_mps', raw)}
                   />
                   <RouteSpeedField
                     label={
@@ -250,11 +250,11 @@ export default function RouteMapWidgetEditor({ widget, updateWidgetData, updateW
                     }
                     value={maximum}
                     unit={unit.value}
-                    min={speedColoring.min_speed_kmh}
+                    min={speedColoring.min_speed_mps}
                     step={0.1}
                     integerDisplay={false}
                     placeholder={t('widget-editor.routeSpeedMaximumPlaceholder', 'Maximum speed')}
-                    onChange={(raw) => updateSpeedBound('max_speed_kmh', raw)}
+                    onChange={(raw) => updateSpeedBound('max_speed_mps', raw)}
                   />
                 </div>
                 {speedRangeError ? (
@@ -274,8 +274,8 @@ export default function RouteMapWidgetEditor({ widget, updateWidgetData, updateW
                       key={index}
                       unit={unit.value}
                       label={t('widget-editor.routeSpeedThreshold', 'Color {{number}} threshold ({{unit}})', { number: index + 1, unit: unit.label })}
-                      value={span > 0 ? speedColoring.min_speed_kmh + stop.offset * span : null}
-                      min={speedColoring.min_speed_kmh}
+                      value={span > 0 ? speedColoring.min_speed_mps + stop.offset * span : null}
+                      min={speedColoring.min_speed_mps}
                       max={maximum ?? undefined}
                       step={0.1}
                       integerDisplay={false}

@@ -31,8 +31,8 @@ Templates store an optional `speed_coloring` block on the `course` plot:
     "enabled": true,
     "mode": "auto",
     "unit": "kmh",
-    "min_speed_kmh": 0,
-    "max_speed_kmh": null,
+    "min_speed_mps": 0,
+    "max_speed_mps": null,
     "stops": [
       { "offset": 0, "color": "#2563eb" },
       { "offset": 0.333333, "color": "#06b6d4" },
@@ -49,7 +49,7 @@ Auto in the editor. Direct native configs without a mode preserve their previous
 explicit settings. The shared renderer resolves Auto against the canonical
 manifest defaults, even if the template retains different Custom values.
 The native renderer validates custom ranges and palette colors/offsets at ingress.
-Bounds remain canonical km/h and stops remain normalized offsets; `unit` is an
+Bounds remain canonical m/s and stops remain normalized offsets; `unit` is an
 editor display preference, so changing units never changes the rendered range.
 All 15 existing UI locales include the feature labels and validation messages.
 
@@ -93,3 +93,27 @@ ffmpeg -n -f lavfi -i 'testsrc2=size=1920x1080:rate=30000/1001' \
 
 Production app packaging also needs the SDK versions in `scripts/build-wasm.mjs`
 and an `EMSDK` path in `.env.local`; see the existing app build documentation.
+
+## Speed storage and earlier preview templates
+
+Activity samples, full-activity maximum, custom bounds and renderer calculations
+all use metres per second, matching the canonical speed metric. Conversion to
+km/h, mph, knots or pace happens only at the UI boundary. `unit` is a saved UI
+preference; color-stop offsets are dimensionless fractions of the m/s range.
+For example, `min_speed_mps: 1` and `max_speed_mps: 10` display as 3.6–36 km/h.
+
+Templates from the earlier experimental preview used `min_speed_kmh` and
+`max_speed_kmh`. The current schema rejects those fields with migration guidance
+rather than interpreting their numbers as m/s. Convert an exported template to
+a new file, then import that file:
+
+```sh
+node scripts/migrate-route-speed-template.mjs old-template.json new-template-mps.json
+node --test scripts/migrate-route-speed-template.test.mjs
+```
+
+The converter divides the two bounds by 3.6, preserves null automatic maxima,
+colors, stop positions, display preference and mode, and refuses ambiguous mixed
+schemas, invalid ranges or an existing output file. Original templates are never
+modified. Old raw native configs must likewise be regenerated using the current
+template materializer; the renderer has one m/s config schema, without km/h aliases.

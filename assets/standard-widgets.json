@@ -450,8 +450,8 @@
           "enabled": false,
           "mode": "auto",
           "unit": "kmh",
-          "min_speed_kmh": 0,
-          "max_speed_kmh": null,
+          "min_speed_mps": 0,
+          "max_speed_mps": null,
           "stops": [
             {
               "offset": 0,

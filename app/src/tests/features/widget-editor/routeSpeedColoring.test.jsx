@@ -35,7 +35,7 @@ describe('route speed coloring', () => {
     expect(data.speed_coloring.mode).toBe('auto')
     delete data.speed_coloring
     let state = createDurableEditorState({ config: { scene: {}, rasters: [], plots: [data] }, globalDefaults: DEFAULT_GLOBAL_DEFAULTS })
-    expect(state.config.plots[0].speed_coloring).toMatchObject({ enabled: false, mode: 'auto', min_speed_kmh: 0, max_speed_kmh: null })
+    expect(state.config.plots[0].speed_coloring).toMatchObject({ enabled: false, mode: 'auto', min_speed_mps: 0, max_speed_mps: null })
     const legacyDefaults = defaults()
     delete legacyDefaults.speed_coloring.mode
     const migrated = createDurableEditorState({
@@ -45,8 +45,8 @@ describe('route speed coloring', () => {
     expect(migrated.config.plots[0].speed_coloring.mode).toBe('auto')
     const settings = {
       enabled: true,
-      min_speed_kmh: 2,
-      max_speed_kmh: 42,
+      min_speed_mps: 2 / 3.6,
+      max_speed_mps: 42 / 3.6,
       unit: 'kn',
       stops: [
         { offset: 0, color: '#112233' },
@@ -62,6 +62,14 @@ describe('route speed coloring', () => {
       const effective = createEditorEffectiveConfig({ config: loaded.config, globalDefaults: loaded.globalDefaults, language: 'en' })
       expect(effective.plots[0].speed_coloring).toEqual({ ...settings, mode })
     }
+  })
+
+  test('rejects earlier km/h templates with explicit migration instructions', () => {
+    const data = defaults()
+    data.speed_coloring = { enabled: true, min_speed_kmh: 0, max_speed_kmh: 36, stops: data.speed_coloring.stops }
+    expect(() => createDurableEditorState({ config: { scene: {}, plots: [data] }, globalDefaults: DEFAULT_GLOBAL_DEFAULTS })).toThrow(
+      'migrate-route-speed-template.mjs',
+    )
   })
 
   test('rejects malformed saved units instead of silently changing them', () => {
@@ -92,9 +100,9 @@ describe('route speed coloring', () => {
     expect(screen.getByText('Finished Opacity')).toBeTruthy()
     fireEvent.click(screen.getByText('Custom', { exact: true }))
     expect(props.updateWidgetData).toHaveBeenLastCalledWith('route', {
-      speed_coloring: { ...data.speed_coloring, mode: 'custom', max_speed_kmh: 72 },
+      speed_coloring: { ...data.speed_coloring, mode: 'custom', max_speed_mps: 20 },
     })
-    data.speed_coloring = { ...data.speed_coloring, mode: 'custom', max_speed_kmh: 72 }
+    data.speed_coloring = { ...data.speed_coloring, mode: 'custom', max_speed_mps: 20 }
     view.rerender(<RouteMapWidgetEditor {...props} />)
     expect(screen.getByRole('group', { name: 'Gradient stops' })).toBeTruthy()
     const maximum = screen.getByPlaceholderText('Maximum speed')
@@ -108,15 +116,15 @@ describe('route speed coloring', () => {
     expect(screen.getByRole('alert').textContent).toContain('Enter a value')
     fireEvent.change(maximum, { target: { value: '45' } })
     fireEvent.blur(maximum)
-    expect(props.updateWidgetData).toHaveBeenLastCalledWith('route', { speed_coloring: { ...data.speed_coloring, max_speed_kmh: 45 } })
-    data.speed_coloring = { ...data.speed_coloring, max_speed_kmh: 45 }
+    expect(props.updateWidgetData).toHaveBeenLastCalledWith('route', { speed_coloring: { ...data.speed_coloring, max_speed_mps: 45 / 3.6 } })
+    data.speed_coloring = { ...data.speed_coloring, max_speed_mps: 45 / 3.6 }
     view.rerender(<RouteMapWidgetEditor {...props} />)
     fireEvent.click(screen.getByText('Auto', { exact: true }))
     expect(props.updateWidgetData).toHaveBeenLastCalledWith('route', { speed_coloring: { ...data.speed_coloring, mode: 'auto' } })
     data.speed_coloring = { ...data.speed_coloring, mode: 'auto' }
     view.rerender(<RouteMapWidgetEditor {...props} />)
     expect(screen.queryByPlaceholderText('Maximum speed')).toBeNull()
-    expect(data.speed_coloring.max_speed_kmh).toBe(45)
+    expect(data.speed_coloring.max_speed_mps).toBe(12.5)
     data.speed_coloring.enabled = false
     view.rerender(<RouteMapWidgetEditor {...props} />)
     expect(screen.getByText('Finished Color')).toBeTruthy()
@@ -125,7 +133,7 @@ describe('route speed coloring', () => {
 
   test('Custom edits exact color thresholds without accepting duplicates', () => {
     const data = defaults()
-    data.speed_coloring = { ...data.speed_coloring, enabled: true, mode: 'custom', max_speed_kmh: 60 }
+    data.speed_coloring = { ...data.speed_coloring, enabled: true, mode: 'custom', max_speed_mps: 60 / 3.6 }
     const props = propsFor(data)
     render(<RouteMapWidgetEditor {...props} />)
     const threshold = screen.getByDisplayValue('20')
@@ -142,7 +150,14 @@ describe('route speed coloring', () => {
   })
   test('pace bounds use slow/fast labels and edit canonical speeds', () => {
     const data = defaults()
-    data.speed_coloring = { ...data.speed_coloring, enabled: true, mode: 'custom', unit: 'min_per_km', min_speed_kmh: 10, max_speed_kmh: 15 }
+    data.speed_coloring = {
+      ...data.speed_coloring,
+      enabled: true,
+      mode: 'custom',
+      unit: 'min_per_km',
+      min_speed_mps: 10 / 3.6,
+      max_speed_mps: 15 / 3.6,
+    }
     const props = propsFor(data)
     render(<RouteMapWidgetEditor {...props} />)
     expect(screen.getByText('Slow pace (min/km)')).toBeTruthy()
@@ -150,7 +165,7 @@ describe('route speed coloring', () => {
     const slow = screen.getAllByDisplayValue('6:00')[0]
     fireEvent.change(slow, { target: { value: '7:30' } })
     fireEvent.blur(slow)
-    expect(props.updateWidgetData.mock.calls.at(-1)[1].speed_coloring.min_speed_kmh).toBe(8)
+    expect(props.updateWidgetData.mock.calls.at(-1)[1].speed_coloring.min_speed_mps).toBeCloseTo(8 / 3.6)
     const fast = screen.getAllByDisplayValue('4:00')[0]
     fireEvent.change(fast, { target: { value: '8:00' } })
     fireEvent.blur(fast)
@@ -158,7 +173,7 @@ describe('route speed coloring', () => {
   })
   test('changing display units leaves the stored range and thresholds intact', async () => {
     const data = defaults()
-    data.speed_coloring = { ...data.speed_coloring, enabled: true, mode: 'custom', min_speed_kmh: 10, max_speed_kmh: 30 }
+    data.speed_coloring = { ...data.speed_coloring, enabled: true, mode: 'custom', min_speed_mps: 10 / 3.6, max_speed_mps: 30 / 3.6 }
     const props = propsFor(data)
     render(<RouteMapWidgetEditor {...props} />)
     const units = screen.getAllByRole('combobox').find((element) => element.textContent.includes('km/h'))

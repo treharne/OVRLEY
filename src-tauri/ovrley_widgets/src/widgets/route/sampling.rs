@@ -118,7 +118,7 @@ impl RouteActivity {
             } else {
                 self.progress_at(*time, None)
             };
-            let speed = self.speed.get(index).copied().flatten().map(|v| v * 3.6);
+            let speed = self.speed.get(index).copied().flatten();
             // Stationary samples share progress: retain the last observation at
             // that location, without introducing zero-length paint segments.
             if let Some(last) = points.last_mut().filter(|last| last.0 == progress) {
@@ -129,7 +129,7 @@ impl RouteActivity {
         }
         super::speed::SpeedProfile {
             points,
-            maximum_kmh: self.speed.iter().flatten().copied().fold(0.0, f64::max) * 3.6,
+            maximum_mps: self.speed.iter().flatten().copied().fold(0.0, f64::max),
         }
     }
 

@@ -27,14 +27,14 @@ pub enum SpeedColorMode {
 }
 
 /// Explicit template settings. A missing block preserves legacy solid routes.
-/// Bounds are km/h; `None` uses the maximum observed in the entire activity.
+/// Bounds are metres/second; `None` uses the maximum observed in the entire activity.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct SpeedColorConfig {
     pub enabled: bool,
     #[serde(default)]
     pub mode: SpeedColorMode,
-    pub min_speed_kmh: f64,
-    pub max_speed_kmh: Option<f64>,
+    pub min_speed_mps: f64,
+    pub max_speed_mps: Option<f64>,
     pub stops: Vec<GradientStop>,
 }
 
@@ -70,17 +70,17 @@ impl SpeedColorConfig {
                 ..validated
             });
         }
-        if !self.min_speed_kmh.is_finite() || self.min_speed_kmh < 0.0 {
+        if !self.min_speed_mps.is_finite() || self.min_speed_mps < 0.0 {
             return Err(WidgetError::Config(format!(
-                "{field}.min_speed_kmh: expected a finite non-negative speed"
+                "{field}.min_speed_mps: expected a finite non-negative speed"
             )));
         }
         if self
-            .max_speed_kmh
-            .is_some_and(|v| !v.is_finite() || v <= self.min_speed_kmh)
+            .max_speed_mps
+            .is_some_and(|v| !v.is_finite() || v <= self.min_speed_mps)
         {
             return Err(WidgetError::Config(format!(
-                "{field}.max_speed_kmh: must exceed the minimum speed"
+                "{field}.max_speed_mps: must exceed the minimum speed"
             )));
         }
         let TrackFillColor::Gradient(stops) = validate_track_fill_color(
@@ -107,11 +107,11 @@ impl SpeedColorConfig {
     }
 
     fn color(&self, speed: f64, maximum: f64) -> String {
-        let span = self.max_speed_kmh.unwrap_or(maximum) - self.min_speed_kmh;
+        let span = self.max_speed_mps.unwrap_or(maximum) - self.min_speed_mps;
         // A stationary activity (or minimum above the automatic maximum) uses
         // the slowest colour, without division by zero or invented speed limits.
         let offset = if span > 0.0 {
-            ((speed - self.min_speed_kmh) / span).clamp(0.0, 1.0) as f32
+            ((speed - self.min_speed_mps) / span).clamp(0.0, 1.0) as f32
         } else {
             0.0
         };
@@ -143,7 +143,7 @@ impl SpeedColorConfig {
 
 pub struct SpeedProfile {
     pub points: Vec<(f32, Option<f64>)>,
-    pub maximum_kmh: f64,
+    pub maximum_mps: f64,
 }
 impl SpeedProfile {
     fn at(&self, progress: f32) -> Option<f64> {
@@ -235,11 +235,11 @@ impl SpeedRoute {
         );
         // A large speed change can cross several palette stops in one sample
         // interval. Split there too, so the chosen palette is respected exactly.
-        let maximum = color.max_speed_kmh.unwrap_or(profile.maximum_kmh);
+        let maximum = color.max_speed_mps.unwrap_or(profile.maximum_mps);
         for pair in profile.points.windows(2) {
             if let Some((a, b)) = pair[0].1.zip(pair[1].1).filter(|(a, b)| a != b) {
                 for speed in color.stops.iter().map(|stop| {
-                    color.min_speed_kmh + stop.offset as f64 * (maximum - color.min_speed_kmh)
+                    color.min_speed_mps + stop.offset as f64 * (maximum - color.min_speed_mps)
                 }) {
                     let fraction = (speed - a) / (b - a);
                     let progress = pair[0].0 + (pair[1].0 - pair[0].0) * fraction as f32;
@@ -267,8 +267,8 @@ impl SpeedRoute {
             }
             let colors = profile.at(pair[0]).zip(profile.at(pair[1])).map(|(a, b)| {
                 (
-                    color.color(a, profile.maximum_kmh),
-                    color.color(b, profile.maximum_kmh),
+                    color.color(a, profile.maximum_mps),
+                    color.color(b, profile.maximum_mps),
                 )
             });
             let paint = |fallback: &str| -> WidgetResult<Paint> {
@@ -518,8 +518,8 @@ mod tests {
         SpeedColorConfig {
             enabled: true,
             mode: SpeedColorMode::Custom,
-            min_speed_kmh: 0.0,
-            max_speed_kmh: None,
+            min_speed_mps: 0.0,
+            max_speed_mps: None,
             stops: vec![
                 GradientStop {
                     offset: 0.0,
@@ -539,12 +539,12 @@ mod tests {
         assert_eq!(c.color(30.0, 60.0), "#800080");
         assert_eq!(c.color(60.0, 60.0), "#ff0000");
         assert_eq!(c.color(0.0, 0.0), "#0000ff");
-        c.min_speed_kmh = 10.0;
-        c.max_speed_kmh = Some(30.0);
+        c.min_speed_mps = 10.0;
+        c.max_speed_mps = Some(30.0);
         assert_eq!(c.color(20.0, 100.0), "#800080");
         assert_eq!(c.color(100.0, 100.0), "#ff0000");
-        c.min_speed_kmh = 0.0;
-        c.max_speed_kmh = None;
+        c.min_speed_mps = 0.0;
+        c.max_speed_mps = None;
         c.stops[0].color = "#0000ff00".into();
         c.stops[1].color = "#ff0000ff".into();
         assert_eq!(c.color(30.0, 60.0), "#80008080");
@@ -553,44 +553,44 @@ mod tests {
     fn auto_uses_zero_activity_maximum_and_default_palette() {
         let mut c = config();
         c.mode = SpeedColorMode::Auto;
-        c.min_speed_kmh = 12.0;
-        c.max_speed_kmh = Some(15.0);
+        c.min_speed_mps = 12.0;
+        c.max_speed_mps = Some(15.0);
         c.stops[0].color = "#ffffff".into();
         let resolved = c.validate("speed").unwrap();
         assert_eq!(resolved.mode, SpeedColorMode::Auto);
-        assert_eq!(resolved.min_speed_kmh, 0.0);
-        assert_eq!(resolved.max_speed_kmh, None);
+        assert_eq!(resolved.min_speed_mps, 0.0);
+        assert_eq!(resolved.max_speed_mps, None);
         assert_eq!(resolved.stops.len(), 4);
         assert_eq!(resolved.color(0.0, 72.0), "#2563eb");
         assert_eq!(resolved.color(72.0, 72.0), "#ef4444");
-        assert_eq!(c.min_speed_kmh, 12.0); // Auto does not destroy stored Custom values.
+        assert_eq!(c.min_speed_mps, 12.0); // Auto does not destroy stored Custom values.
         c.mode = SpeedColorMode::Custom;
-        assert_eq!(c.validate("speed").unwrap().max_speed_kmh, Some(15.0));
+        assert_eq!(c.validate("speed").unwrap().max_speed_mps, Some(15.0));
     }
 
     #[test]
     fn configs_without_a_mode_preserve_custom_settings() {
         let mut value = serde_json::to_value(config()).unwrap();
         value.as_object_mut().unwrap().remove("mode");
-        value["min_speed_kmh"] = 5.0.into();
-        value["max_speed_kmh"] = 35.0.into();
+        value["min_speed_mps"] = 5.0.into();
+        value["max_speed_mps"] = 35.0.into();
         let legacy: SpeedColorConfig = serde_json::from_value(value).unwrap();
         let resolved = legacy.validate("speed").unwrap();
         assert_eq!(resolved.mode, SpeedColorMode::Custom);
-        assert_eq!(resolved.min_speed_kmh, 5.0);
-        assert_eq!(resolved.max_speed_kmh, Some(35.0));
+        assert_eq!(resolved.min_speed_mps, 5.0);
+        assert_eq!(resolved.max_speed_mps, Some(35.0));
         assert_eq!(resolved.stops[0].color, "#0000ff");
     }
 
     #[test]
     fn rejects_invalid_ranges_and_palettes() {
         let mut c = config();
-        c.max_speed_kmh = Some(0.0);
+        c.max_speed_mps = Some(0.0);
         assert!(c.validate("speed").is_err());
-        c.max_speed_kmh = None;
-        c.min_speed_kmh = f64::NAN;
+        c.max_speed_mps = None;
+        c.min_speed_mps = f64::NAN;
         assert!(c.validate("speed").is_err());
-        c.min_speed_kmh = 0.0;
+        c.min_speed_mps = 0.0;
         c.stops[1].offset = 0.0;
         assert!(c.validate("speed").is_err());
         c.stops[1].offset = 1.0;
@@ -611,8 +611,8 @@ mod tests {
             start: 1.0,
             end: 2.0,
         }));
-        assert_eq!(p.maximum_kmh, 72.0);
-        assert_eq!(p.at(0.0), Some(18.0));
+        assert_eq!(p.maximum_mps, 20.0);
+        assert_eq!(p.at(0.0), Some(5.0));
         assert_eq!(p.at(0.5), None);
         assert_eq!(p.at(1.0), None);
     }
@@ -674,7 +674,7 @@ mod tests {
                 (0.8, None),
                 (1.0, None),
             ],
-            maximum_kmh: 60.0,
+            maximum_mps: 60.0,
         };
         let mut palette = self::config();
         palette.stops.insert(
@@ -739,7 +739,7 @@ mod tests {
         let curve = Arc::new(RouteGeometry::new(&config, &samples).unwrap());
         let dense = SpeedProfile {
             points: (0..200).map(|i| (i as f32 / 199.0, Some(10.0))).collect(),
-            maximum_kmh: 10.0,
+            maximum_mps: 10.0,
         };
         let dense_route = SpeedRoute::new(&curve, &palette, &dense, &config, &scene, 1.0).unwrap();
         let mut surface = skia_safe::surfaces::raster_n32_premul((200, 100)).unwrap();
@@ -789,7 +789,7 @@ mod tests {
             points: (0..200)
                 .map(|i| (i as f32 / 199.0, Some(i as f64 / 199.0 * 60.0)))
                 .collect(),
-            maximum_kmh: 60.0,
+            maximum_mps: 60.0,
         };
         let mut cached =
             SpeedRoute::new(&crossing, &palette, &changing, &config, &scene, 1.0).unwrap();
