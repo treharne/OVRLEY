@@ -176,10 +176,16 @@ export function SelectField({ label, value, onValueChange, options, disabled = f
  * @param {*} props.placeholder - Value for placeholder.
  * @returns {JSX.Element} Rendered component output.
  */
-export function TextField({ label, value, onChange, placeholder = '' }) {
+export function TextField({ label, value, onChange, placeholder = '', disabled = false }) {
   return (
-    <FieldBlock label={label}>
-      <BlurInput value={value} onChange={(event) => onChange(event.target.value)} className={CONTROL_CLASS} placeholder={placeholder} />
+    <FieldBlock label={label} disabled={disabled}>
+      <BlurInput
+        disabled={disabled}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className={CONTROL_CLASS}
+        placeholder={placeholder}
+      />
     </FieldBlock>
   )
 }

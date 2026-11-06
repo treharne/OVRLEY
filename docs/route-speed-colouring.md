@@ -7,8 +7,9 @@ choose **Auto** or **Custom**. Speed coloring is off by default.
   activity as the maximum, and the default blue/cyan/yellow/red palette. Its
   range and palette controls are hidden. Exporting a short range does not change
   the automatic maximum.
-- **Custom** exposes the minimum/maximum (km/h), editable color stops and numeric
-  speed thresholds for each stop. The gradient editor supports two to five stops.
+- **Custom** adds one unit selector: km/h, mph, knots, m/s, min/km or min/mile.
+  It exposes the range, editable color stops and numeric thresholds for each stop.
+  Pace ranges use Slow pace / Fast pace and m:ss values (∞ means zero speed). The gradient editor supports two to five stops.
   Switching to Auto preserves the stored Custom settings for switching back.
 
 Each activity has its own automatic maximum. Stationary activities use the slow
@@ -29,6 +30,7 @@ Templates store an optional `speed_coloring` block on the `course` plot:
   "speed_coloring": {
     "enabled": true,
     "mode": "auto",
+    "unit": "kmh",
     "min_speed_kmh": 0,
     "max_speed_kmh": null,
     "stops": [
@@ -47,12 +49,22 @@ Auto in the editor. Direct native configs without a mode preserve their previous
 explicit settings. The shared renderer resolves Auto against the canonical
 manifest defaults, even if the template retains different Custom values.
 The native renderer validates custom ranges and palette colors/offsets at ingress.
+Bounds remain canonical km/h and stops remain normalized offsets; `unit` is an
+editor display preference, so changing units never changes the rendered range.
+All 15 existing UI locales include the feature labels and validation messages.
 
 The shared widget engine handles app preview and native export. Speed samples
 remain separate from simplified route geometry. Drawing segments split at
 geometric vertices, telemetry samples and palette thresholds, so straight roads
 do not lose speed peaks. Paints and paths are prepared once per layout; the
-remaining route is raster-cached. Contiguous color polygons share their edges
+remaining route is raster-cached. For opaque palette colors, a device-aligned
+completed-prefix raster appends fully passed segments rather than replaying them
+each frame. The active segment, completed outline and marker still update. Each
+preview/export worker owns one prefix surface, bounded by the visible route clip;
+reverse seeks or transform/bounds changes rebuild it. Clones start empty.
+Intrinsic-alpha palettes retain the vector path to preserve their compositing.
+Finished/remaining opacity and chronological overlap coloring remain supported.
+Rasterization at antialiased edges can differ slightly from the uncached path. Contiguous color polygons share their edges
 and are clipped to the rounded route outline. Only the assembled outline is
 antialiased, and opacity is applied once, avoiding dots and cracks between dense
 samples while keeping rounded line ends and progress markers.

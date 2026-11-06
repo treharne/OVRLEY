@@ -21,6 +21,7 @@
  * @module template-normalization
  */
 
+import { routeSpeedUnit } from '@/features/widget-editor/utils/routeSpeedUnits'
 import { normalizeColorFields } from '@/lib/color-utils'
 import { pickDefined } from '@/lib/utils'
 import { WIDGET_TYPE_DEFINITIONS, DISPLAY_TYPE_DEFINITIONS, requireDisplayMode } from '@/lib/widget/widget-catalog'
@@ -233,6 +234,7 @@ function normalizePlot(plot = {}, config, globalDefaults) {
     const defaults = WIDGET_TYPE_DEFINITIONS.course.defaults.speed_coloring
     const saved = plot.speed_coloring
     const settings = { ...defaults, ...saved }
+    if (!routeSpeedUnit(settings.unit)) throw new Error(`Unsupported route speed unit: ${settings.unit}`)
     const matchesAuto =
       settings.min_speed_kmh === 0 && settings.max_speed_kmh === null && JSON.stringify(settings.stops) === JSON.stringify(defaults.stops)
     withDefaults.speed_coloring = { ...settings, mode: saved?.mode ?? (matchesAuto ? 'auto' : 'custom') }

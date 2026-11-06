@@ -449,6 +449,7 @@
         "speed_coloring": {
           "enabled": false,
           "mode": "auto",
+          "unit": "kmh",
           "min_speed_kmh": 0,
           "max_speed_kmh": null,
           "stops": [

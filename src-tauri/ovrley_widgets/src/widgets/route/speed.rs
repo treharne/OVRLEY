@@ -10,7 +10,11 @@ use crate::{
     },
 };
 use serde::{Deserialize, Serialize};
-use skia_safe::{path_utils, BlendMode, Canvas, ClipOp, Paint, Path, PathBuilder, Point, Rect};
+use skia_safe::{
+    path_utils, surfaces, BlendMode, Canvas, ClipOp, Color, IRect, Matrix, Paint, Path,
+    PathBuilder, Point, Rect, Surface, M44,
+};
+use std::cell::RefCell;
 use std::sync::{Arc, OnceLock};
 
 /// Older configs used explicit/custom settings before mode selection existed.
@@ -166,6 +170,26 @@ struct SpeedSegment {
     completed: Paint,
     remaining: Paint,
 }
+/// Each preview/export worker owns its cache. Cloning a layout starts empty.
+#[derive(Default)]
+struct CompletedPrefix(RefCell<Option<PrefixState>>);
+impl Clone for CompletedPrefix {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+impl std::fmt::Debug for CompletedPrefix {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompletedPrefix").finish_non_exhaustive()
+    }
+}
+struct PrefixState {
+    matrix: Matrix,
+    bounds: IRect,
+    surface: Surface,
+    count: usize,
+}
+
 #[derive(Clone, Debug)]
 pub struct SpeedRoute {
     segments: Vec<SpeedSegment>,
@@ -175,6 +199,8 @@ pub struct SpeedRoute {
     geometry: Arc<RouteGeometry>,
     radii: [f32; 2],
     outlines: [Path; 2],
+    prefix: CompletedPrefix,
+    cache_opaque: bool,
 }
 
 fn stroke_outline(path: &Path, radius: f32) -> WidgetResult<Path> {
@@ -339,10 +365,67 @@ impl SpeedRoute {
             geometry: geometry.clone(),
             radii,
             outlines,
+            prefix: CompletedPrefix::default(),
+            // Preserve the exact existing compositing for intrinsic-alpha colors.
+            cache_opaque: color
+                .stops
+                .iter()
+                .all(|stop| parse_color(&stop.color, 1.0).a() == 255)
+                && parse_color(&config.completed_line_color, 1.0).a() == 255,
             completed_opacity: config.completed_line_opacity * scene.opacity,
             remaining_opacity: config.remaining_line_opacity * scene.opacity,
             bounds: geometry.point_bounds.with_outset((half_width, half_width)),
         })
+    }
+
+    /// Append fully passed segments once. Raw polygons are cached on the caller's
+    /// device grid; the changing progress outline is applied only at composition.
+    fn draw_prefix(
+        &self,
+        canvas: &Canvas,
+        progress: f32,
+        matrix: Matrix,
+        bounds: IRect,
+    ) -> Option<usize> {
+        let count = self
+            .segments
+            .partition_point(|segment| segment.end < progress);
+        let mut cache = self.prefix.0.borrow_mut();
+        if cache.as_ref().is_none_or(|state| {
+            state.matrix != matrix || state.bounds != bounds || state.count > count
+        }) {
+            let mut surface = surfaces::raster_n32_premul((bounds.width(), bounds.height()))?;
+            surface.canvas().clear(Color::TRANSPARENT);
+            let mut aligned = matrix;
+            aligned.post_translate((-(bounds.left as f32), -(bounds.top as f32)));
+            surface.canvas().set_matrix(&M44::from(aligned));
+            *cache = Some(PrefixState {
+                matrix,
+                bounds,
+                surface,
+                count: 0,
+            });
+        }
+        let state = cache.as_mut()?;
+        for segment in &self.segments[state.count..count] {
+            if segment.join_disk {
+                state
+                    .surface
+                    .canvas()
+                    .draw_circle(segment.a, self.radii[1], &segment.completed);
+            }
+            state
+                .surface
+                .canvas()
+                .draw_path(&segment.paths[1], &segment.completed);
+        }
+        state.count = count;
+        let image = state.surface.image_snapshot();
+        canvas.save();
+        canvas.reset_matrix();
+        canvas.draw_image(&image, (bounds.left as f32, bounds.top as f32), None);
+        canvas.restore();
+        Some(count)
     }
 
     pub fn draw(&self, canvas: &Canvas, progress: f32, completed: bool) {
@@ -367,6 +450,17 @@ impl SpeedRoute {
         } else {
             self.outlines[index].clone()
         };
+        let matrix = canvas.local_to_device_as_3x3();
+        let mapped = matrix.map_rect(self.bounds).0;
+        let mapped = IRect::new(
+            mapped.left.floor() as i32,
+            mapped.top.floor() as i32,
+            mapped.right.ceil() as i32,
+            mapped.bottom.ceil() as i32,
+        );
+        let cache_bounds = canvas
+            .device_clip_bounds()
+            .and_then(|clip| IRect::intersect(&mapped, &clip));
         canvas.clip_path(&outline, ClipOp::Intersect, true);
         if let Some(first) = self.segments.first() {
             let paint = if completed {
@@ -376,8 +470,17 @@ impl SpeedRoute {
             };
             canvas.draw_circle(first.a, self.radii[index], paint);
         }
-        let mut last = None;
-        for segment in &self.segments {
+        let prefix = if completed && self.cache_opaque {
+            cache_bounds
+                .and_then(|bounds| self.draw_prefix(canvas, progress, matrix, bounds))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        let mut last = prefix
+            .checked_sub(1)
+            .and_then(|index| self.segments.get(index));
+        for segment in &self.segments[prefix..] {
             if segment.start >= progress {
                 break;
             }
@@ -656,6 +759,108 @@ mod tests {
                 assert!(colored[3] >= 250, "interior crack: {colored:?}");
             }
         }
+        // Cached prefixes preserve chronological colors at overlaps, backwards
+        // seeks, repeated frames, and non-integer rotated/scaled device grids.
+        let crossing = Arc::new(
+            RouteGeometry::new(
+                &config,
+                &[
+                    RouteSample {
+                        point: (0.0, 0.0),
+                        progress01: 0.0,
+                    },
+                    RouteSample {
+                        point: (1.0, 1.0),
+                        progress01: 0.33,
+                    },
+                    RouteSample {
+                        point: (0.0, 1.0),
+                        progress01: 0.66,
+                    },
+                    RouteSample {
+                        point: (1.0, 0.0),
+                        progress01: 1.0,
+                    },
+                ],
+            )
+            .unwrap(),
+        );
+        let changing = SpeedProfile {
+            points: (0..200)
+                .map(|i| (i as f32 / 199.0, Some(i as f64 / 199.0 * 60.0)))
+                .collect(),
+            maximum_kmh: 60.0,
+        };
+        let mut cached =
+            SpeedRoute::new(&crossing, &palette, &changing, &config, &scene, 1.0).unwrap();
+        let mut reference = cached.clone();
+        reference.cache_opaque = false;
+        for opacity in [1.0, 0.45] {
+            cached.completed_opacity = opacity;
+            reference.completed_opacity = opacity;
+            for transform in [false, true] {
+                for progress in [0.2, 0.55, 0.55, 0.9, 0.3, 1.0] {
+                    let draw = |route: &SpeedRoute| {
+                        let mut surface =
+                            skia_safe::surfaces::raster_n32_premul((300, 200)).unwrap();
+                        surface.canvas().clear(skia_safe::Color::TRANSPARENT);
+                        if transform {
+                            surface.canvas().translate((20.25, 10.5));
+                            surface.canvas().rotate(13.0, None);
+                            surface.canvas().scale((0.9, 1.1));
+                        }
+                        route.draw(surface.canvas(), progress, true);
+                        let mut pixels = vec![0; 300 * 200 * 4];
+                        read_surface_rgba(&mut surface, &mut pixels).unwrap();
+                        pixels
+                    };
+                    let (actual, expected) = (draw(&cached), draw(&reference));
+                    let mut mask = skia_safe::surfaces::raster_n32_premul((300, 200)).unwrap();
+                    mask.canvas().clear(skia_safe::Color::TRANSPARENT);
+                    if transform {
+                        mask.canvas().translate((20.25, 10.5));
+                        mask.canvas().rotate(13.0, None);
+                        mask.canvas().scale((0.9, 1.1));
+                    }
+                    let outline = stroke_outline(
+                        &crossing.completed_path(&crossing.state(progress)),
+                        cached.radii[1],
+                    )
+                    .unwrap();
+                    mask.canvas().clip_path(&outline, ClipOp::Intersect, true);
+                    mask.canvas()
+                        .draw_color(skia_safe::Color::WHITE, BlendMode::Src);
+                    let mut coverage = vec![0; actual.len()];
+                    read_surface_rgba(&mut mask, &mut coverage).unwrap();
+                    let mut errors = 0usize;
+                    for ((a, b), mask) in actual
+                        .chunks_exact(4)
+                        .zip(expected.chunks_exact(4))
+                        .zip(coverage.chunks_exact(4))
+                    {
+                        if b[3] > 0 && mask[3] == 255 {
+                            assert!(
+                                a[3].abs_diff(b[3]) <= 2,
+                                "cached interior alpha: {a:?} vs {b:?}"
+                            );
+                            for channel in 0..3 {
+                                assert!(
+                                    a[channel].abs_diff(b[channel]) <= 2,
+                                    "cached overlap color: {a:?} vs {b:?}"
+                                );
+                            }
+                        }
+                        errors += a[3].abs_diff(b[3]) as usize;
+                    }
+                    assert!(
+                        errors < 6000,
+                        "only antialiased edge coverage may differ: {errors}"
+                    );
+                }
+            }
+        }
+        assert!(cached.prefix.0.borrow().is_some());
+        assert!(cached.clone().prefix.0.borrow().is_none());
         let mut legacy = serde_json::to_value(raw).unwrap();
         legacy.as_object_mut().unwrap().remove("speed_coloring");
         let legacy: CoursePlotConfig = serde_json::from_value(legacy).unwrap();

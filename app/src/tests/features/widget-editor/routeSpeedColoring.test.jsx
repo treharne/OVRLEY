@@ -9,6 +9,7 @@ import { createDurableEditorState, createEditorEffectiveConfig } from '@/lib/tem
 
 beforeAll(async () => {
   await i18next.changeLanguage('en')
+  HTMLElement.prototype.scrollIntoView = vi.fn()
   globalThis.ResizeObserver = class {
     observe() {}
     unobserve() {}
@@ -46,6 +47,7 @@ describe('route speed coloring', () => {
       enabled: true,
       min_speed_kmh: 2,
       max_speed_kmh: 42,
+      unit: 'kn',
       stops: [
         { offset: 0, color: '#112233' },
         { offset: 1, color: '#abcdef' },
@@ -59,6 +61,16 @@ describe('route speed coloring', () => {
       const loaded = createDurableEditorState({ config: JSON.parse(JSON.stringify(state.config)), globalDefaults: state.globalDefaults })
       const effective = createEditorEffectiveConfig({ config: loaded.config, globalDefaults: loaded.globalDefaults, language: 'en' })
       expect(effective.plots[0].speed_coloring).toEqual({ ...settings, mode })
+    }
+  })
+
+  test('rejects malformed saved units instead of silently changing them', () => {
+    for (const unit of ['kph', '', null, 12]) {
+      const data = defaults()
+      data.speed_coloring.unit = unit
+      expect(() => createDurableEditorState({ config: { scene: {}, plots: [data] }, globalDefaults: DEFAULT_GLOBAL_DEFAULTS })).toThrow(
+        'Unsupported route speed unit',
+      )
     }
   })
 
@@ -93,7 +105,7 @@ describe('route speed coloring', () => {
     expect(props.updateWidgetData).not.toHaveBeenCalled()
     fireEvent.change(maximum, { target: { value: '' } })
     fireEvent.blur(maximum)
-    expect(screen.getByRole('alert').textContent).toContain('Enter a speed')
+    expect(screen.getByRole('alert').textContent).toContain('Enter a value')
     fireEvent.change(maximum, { target: { value: '45' } })
     fireEvent.blur(maximum)
     expect(props.updateWidgetData).toHaveBeenLastCalledWith('route', { speed_coloring: { ...data.speed_coloring, max_speed_kmh: 45 } })
@@ -127,5 +139,31 @@ describe('route speed coloring', () => {
     fireEvent.blur(threshold)
     expect(props.updateWidgetData).not.toHaveBeenCalled()
     expect(screen.getByRole('alert').textContent).toContain('distinct threshold')
+  })
+  test('pace bounds use slow/fast labels and edit canonical speeds', () => {
+    const data = defaults()
+    data.speed_coloring = { ...data.speed_coloring, enabled: true, mode: 'custom', unit: 'min_per_km', min_speed_kmh: 10, max_speed_kmh: 15 }
+    const props = propsFor(data)
+    render(<RouteMapWidgetEditor {...props} />)
+    expect(screen.getByText('Slow pace (min/km)')).toBeTruthy()
+    expect(screen.getByText('Fast pace (min/km)')).toBeTruthy()
+    const slow = screen.getAllByDisplayValue('6:00')[0]
+    fireEvent.change(slow, { target: { value: '7:30' } })
+    fireEvent.blur(slow)
+    expect(props.updateWidgetData.mock.calls.at(-1)[1].speed_coloring.min_speed_kmh).toBe(8)
+    const fast = screen.getAllByDisplayValue('4:00')[0]
+    fireEvent.change(fast, { target: { value: '8:00' } })
+    fireEvent.blur(fast)
+    expect(screen.getByRole('alert').textContent).toContain('Fast pace')
+  })
+  test('changing display units leaves the stored range and thresholds intact', async () => {
+    const data = defaults()
+    data.speed_coloring = { ...data.speed_coloring, enabled: true, mode: 'custom', min_speed_kmh: 10, max_speed_kmh: 30 }
+    const props = propsFor(data)
+    render(<RouteMapWidgetEditor {...props} />)
+    const units = screen.getAllByRole('combobox').find((element) => element.textContent.includes('km/h'))
+    fireEvent.keyDown(units, { key: 'ArrowDown' })
+    fireEvent.click(await screen.findByRole('option', { name: 'kn', exact: true }))
+    expect(props.updateWidgetData).toHaveBeenLastCalledWith('route', { speed_coloring: { ...data.speed_coloring, unit: 'kn' } })
   })
 })
