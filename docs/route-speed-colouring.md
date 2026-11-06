@@ -1,15 +1,18 @@
 # Route speed coloring
 
-Select a Route Map and enable **Color Route by Speed** under Line Styling.
-The default palette runs from blue through cyan and yellow to red. Click or drag
-color stops to edit the colors and their positions; the existing gradient editor
-supports two to five stops. Speed coloring is off by default.
+Select a Route Map and enable **Color Route by Speed** under Line Styling, then
+choose **Auto** or **Custom**. Speed coloring is off by default.
 
-The default range is **0 km/h to the highest valid speed in the entire activity**.
-Leave Maximum speed empty for this automatic maximum, or enter manual minimum
-and maximum speeds (in km/h). Exporting a smaller time range does not recalculate
-the maximum. Each activity has its own automatic range. Values outside a manual
-range clamp to its endpoint colors. Stationary activities use the slow color.
+- **Auto** uses zero as the minimum, the highest valid speed in the entire
+  activity as the maximum, and the default blue/cyan/yellow/red palette. Its
+  range and palette controls are hidden. Exporting a short range does not change
+  the automatic maximum.
+- **Custom** exposes the minimum/maximum (km/h), editable color stops and numeric
+  speed thresholds for each stop. The gradient editor supports two to five stops.
+  Switching to Auto preserves the stored Custom settings for switching back.
+
+Each activity has its own automatic maximum. Stationary activities use the slow
+color. Speeds outside a custom range clamp to its endpoint colors.
 
 Both finished and remaining paths use the same historical speed colors, with
 their existing independent thickness and opacity. Marker styling is independent.
@@ -25,6 +28,7 @@ Templates store an optional `speed_coloring` block on the `course` plot:
 {
   "speed_coloring": {
     "enabled": true,
+    "mode": "auto",
     "min_speed_kmh": 0,
     "max_speed_kmh": null,
     "stops": [
@@ -37,10 +41,12 @@ Templates store an optional `speed_coloring` block on the `course` plot:
 }
 ```
 
-Older templates without this block keep solid coloring, including direct native
-renderer configurations. Frontend template normalization supplies the disabled
-settings so the editor can enable them. The native renderer validates ranges and
-palette colors/offsets at ingress.
+Older templates without this block keep solid coloring. Previously customized
+settings without a mode retain Custom behavior; unchanged defaults migrate to
+Auto in the editor. Direct native configs without a mode preserve their previous
+explicit settings. The shared renderer resolves Auto against the canonical
+manifest defaults, even if the template retains different Custom values.
+The native renderer validates custom ranges and palette colors/offsets at ingress.
 
 The shared widget engine handles app preview and native export. Speed samples
 remain separate from simplified route geometry. Drawing segments split at

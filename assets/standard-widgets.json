@@ -448,6 +448,7 @@
         "show_full_activity": true,
         "speed_coloring": {
           "enabled": false,
+          "mode": "auto",
           "min_speed_kmh": 0,
           "max_speed_kmh": null,
           "stops": [

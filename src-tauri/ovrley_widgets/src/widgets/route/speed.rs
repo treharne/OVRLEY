@@ -11,13 +11,24 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use skia_safe::{path_utils, BlendMode, Canvas, ClipOp, Paint, Path, PathBuilder, Point, Rect};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+/// Older configs used explicit/custom settings before mode selection existed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SpeedColorMode {
+    Auto,
+    #[default]
+    Custom,
+}
 
 /// Explicit template settings. A missing block preserves legacy solid routes.
 /// Bounds are km/h; `None` uses the maximum observed in the entire activity.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct SpeedColorConfig {
     pub enabled: bool,
+    #[serde(default)]
+    pub mode: SpeedColorMode,
     pub min_speed_kmh: f64,
     pub max_speed_kmh: Option<f64>,
     pub stops: Vec<GradientStop>,
@@ -25,6 +36,36 @@ pub struct SpeedColorConfig {
 
 impl SpeedColorConfig {
     pub fn validate(&self, field: &str) -> WidgetResult<Self> {
+        if self.mode == SpeedColorMode::Auto {
+            static DEFAULTS: OnceLock<SpeedColorConfig> = OnceLock::new();
+            let defaults = DEFAULTS.get_or_init(|| {
+                let manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../assets/standard-widgets.json"
+                )))
+                .expect("widget manifest must be valid JSON");
+                let course = manifest["definitions"]
+                    .as_array()
+                    .expect("widget definitions")
+                    .iter()
+                    .find(|w| w["type"] == "course")
+                    .expect("course defaults");
+                serde_json::from_value(course["defaults"]["speed_coloring"].clone())
+                    .expect("speed color defaults must be valid")
+            });
+            // Resolve Auto in the shared engine, for both preview and exports.
+            // Stored Custom settings stay in the template and can be restored.
+            let custom = Self {
+                enabled: self.enabled,
+                mode: SpeedColorMode::Custom,
+                ..defaults.clone()
+            };
+            let validated = custom.validate(field)?;
+            return Ok(Self {
+                mode: SpeedColorMode::Auto,
+                ..validated
+            });
+        }
         if !self.min_speed_kmh.is_finite() || self.min_speed_kmh < 0.0 {
             return Err(WidgetError::Config(format!(
                 "{field}.min_speed_kmh: expected a finite non-negative speed"
@@ -373,6 +414,7 @@ mod tests {
     fn config() -> SpeedColorConfig {
         SpeedColorConfig {
             enabled: true,
+            mode: SpeedColorMode::Custom,
             min_speed_kmh: 0.0,
             max_speed_kmh: None,
             stops: vec![
@@ -404,6 +446,39 @@ mod tests {
         c.stops[1].color = "#ff0000ff".into();
         assert_eq!(c.color(30.0, 60.0), "#80008080");
     }
+    #[test]
+    fn auto_uses_zero_activity_maximum_and_default_palette() {
+        let mut c = config();
+        c.mode = SpeedColorMode::Auto;
+        c.min_speed_kmh = 12.0;
+        c.max_speed_kmh = Some(15.0);
+        c.stops[0].color = "#ffffff".into();
+        let resolved = c.validate("speed").unwrap();
+        assert_eq!(resolved.mode, SpeedColorMode::Auto);
+        assert_eq!(resolved.min_speed_kmh, 0.0);
+        assert_eq!(resolved.max_speed_kmh, None);
+        assert_eq!(resolved.stops.len(), 4);
+        assert_eq!(resolved.color(0.0, 72.0), "#2563eb");
+        assert_eq!(resolved.color(72.0, 72.0), "#ef4444");
+        assert_eq!(c.min_speed_kmh, 12.0); // Auto does not destroy stored Custom values.
+        c.mode = SpeedColorMode::Custom;
+        assert_eq!(c.validate("speed").unwrap().max_speed_kmh, Some(15.0));
+    }
+
+    #[test]
+    fn configs_without_a_mode_preserve_custom_settings() {
+        let mut value = serde_json::to_value(config()).unwrap();
+        value.as_object_mut().unwrap().remove("mode");
+        value["min_speed_kmh"] = 5.0.into();
+        value["max_speed_kmh"] = 35.0.into();
+        let legacy: SpeedColorConfig = serde_json::from_value(value).unwrap();
+        let resolved = legacy.validate("speed").unwrap();
+        assert_eq!(resolved.mode, SpeedColorMode::Custom);
+        assert_eq!(resolved.min_speed_kmh, 5.0);
+        assert_eq!(resolved.max_speed_kmh, Some(35.0));
+        assert_eq!(resolved.stops[0].color, "#0000ff");
+    }
+
     #[test]
     fn rejects_invalid_ranges_and_palettes() {
         let mut c = config();

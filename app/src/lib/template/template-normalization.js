@@ -230,7 +230,12 @@ function normalizePlot(plot = {}, config, globalDefaults) {
   if (WIDGET_TYPE_DEFINITIONS[type]?.collection !== 'plots') throw new Error(`Unknown plot widget type: ${type}`)
   const withDefaults = { ...WIDGET_TYPE_DEFINITIONS[type].defaults, ...plot }
   if (type === 'course') {
-    withDefaults.speed_coloring = { ...WIDGET_TYPE_DEFINITIONS.course.defaults.speed_coloring, ...plot.speed_coloring }
+    const defaults = WIDGET_TYPE_DEFINITIONS.course.defaults.speed_coloring
+    const saved = plot.speed_coloring
+    const settings = { ...defaults, ...saved }
+    const matchesAuto =
+      settings.min_speed_kmh === 0 && settings.max_speed_kmh === null && JSON.stringify(settings.stops) === JSON.stringify(defaults.stops)
+    withDefaults.speed_coloring = { ...settings, mode: saved?.mode ?? (matchesAuto ? 'auto' : 'custom') }
   }
   if (type === 'elevation' || type === 'diving_profile') {
     withDefaults.point_label = normalizePointLabel(plot.point_label, config, globalDefaults)

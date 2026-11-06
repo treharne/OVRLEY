@@ -1,6 +1,7 @@
-import { beforeAll, describe, expect, test, vi } from 'vite-plus/test'
+import { afterEach, beforeAll, describe, expect, test, vi } from 'vite-plus/test'
 import { fireEvent, render, screen, cleanup } from '@testing-library/react'
 import i18next from '@/i18n'
+import useStore from '@/store/useStore'
 import RouteMapWidgetEditor from '@/features/widget-editor/components/RouteMapWidgetEditor'
 import { createWidgetDefaults } from '@/lib/widget/widget-defaults'
 import { DEFAULT_GLOBAL_DEFAULTS } from '@/lib/template/template-constants'
@@ -14,14 +15,33 @@ beforeAll(async () => {
     disconnect() {}
   }
 })
+afterEach(() => {
+  cleanup()
+  useStore.setState({ parsedActivity: null })
+})
 const defaults = () => createWidgetDefaults({ type: 'course' }, DEFAULT_GLOBAL_DEFAULTS)
+const propsFor = (data) => ({
+  widget: { id: 'route', type: 'course', data },
+  updateWidgetData: vi.fn(),
+  updateWidgetDraft: vi.fn(),
+  commitWidgetDraft: vi.fn(),
+  setNumericField: vi.fn(),
+})
 
 describe('route speed coloring', () => {
-  test('older templates get a disabled palette; configured bounds and stops survive save/load', () => {
-    const legacy = defaults()
-    delete legacy.speed_coloring
-    const durable = createDurableEditorState({ config: { scene: {}, rasters: [], plots: [legacy] }, globalDefaults: DEFAULT_GLOBAL_DEFAULTS })
-    expect(durable.config.plots[0].speed_coloring).toMatchObject({ enabled: false, min_speed_kmh: 0, max_speed_kmh: null })
+  test('new templates default to Auto, legacy settings stay Custom, and modes survive save/load', () => {
+    const data = defaults()
+    expect(data.speed_coloring.mode).toBe('auto')
+    delete data.speed_coloring
+    let state = createDurableEditorState({ config: { scene: {}, rasters: [], plots: [data] }, globalDefaults: DEFAULT_GLOBAL_DEFAULTS })
+    expect(state.config.plots[0].speed_coloring).toMatchObject({ enabled: false, mode: 'auto', min_speed_kmh: 0, max_speed_kmh: null })
+    const legacyDefaults = defaults()
+    delete legacyDefaults.speed_coloring.mode
+    const migrated = createDurableEditorState({
+      config: { scene: {}, rasters: [], plots: [legacyDefaults] },
+      globalDefaults: DEFAULT_GLOBAL_DEFAULTS,
+    })
+    expect(migrated.config.plots[0].speed_coloring.mode).toBe('auto')
     const settings = {
       enabled: true,
       min_speed_kmh: 2,
@@ -31,62 +51,81 @@ describe('route speed coloring', () => {
         { offset: 1, color: '#abcdef' },
       ],
     }
-    durable.config.plots[0].speed_coloring = settings
-    const loaded = createDurableEditorState({ config: JSON.parse(JSON.stringify(durable.config)), globalDefaults: durable.globalDefaults })
-    const effective = createEditorEffectiveConfig({ config: loaded.config, globalDefaults: loaded.globalDefaults, language: 'en' })
-    expect(effective.plots[0].speed_coloring).toEqual(settings)
+    state.config.plots[0].speed_coloring = settings
+    state = createDurableEditorState({ config: state.config, globalDefaults: state.globalDefaults })
+    expect(state.config.plots[0].speed_coloring).toEqual({ ...settings, mode: 'custom' })
+    for (const mode of ['auto', 'custom']) {
+      state.config.plots[0].speed_coloring.mode = mode
+      const loaded = createDurableEditorState({ config: JSON.parse(JSON.stringify(state.config)), globalDefaults: state.globalDefaults })
+      const effective = createEditorEffectiveConfig({ config: loaded.config, globalDefaults: loaded.globalDefaults, language: 'en' })
+      expect(effective.plots[0].speed_coloring).toEqual({ ...settings, mode })
+    }
   })
 
-  test('the editor toggles speed coloring and edits an optional maximum and palette', () => {
-    cleanup()
-    const data = defaults()
-    const updateWidgetData = vi.fn()
-    const props = {
-      widget: { id: 'route', type: 'course', data },
-      updateWidgetData,
-      updateWidgetDraft: vi.fn(),
-      commitWidgetDraft: vi.fn(),
-      setNumericField: vi.fn(),
-    }
+  test('Auto is compact; Custom exposes the range and palette and preserves them across mode changes', () => {
+    useStore.setState({ parsedActivity: { speed: [null, 0, 10, 20] } })
+    const data = defaults(),
+      props = propsFor(data)
     const view = render(<RouteMapWidgetEditor {...props} />)
     expect(screen.getByText('Finished Color')).toBeTruthy()
-    expect(screen.getByText('Remaining Color')).toBeTruthy()
     fireEvent.click(screen.getByRole('switch', { name: 'Color Route by Speed' }))
-    expect(updateWidgetData).toHaveBeenLastCalledWith('route', { speed_coloring: { ...data.speed_coloring, enabled: true } })
-    data.speed_coloring = { ...data.speed_coloring, enabled: true }
+    expect(props.updateWidgetData).toHaveBeenLastCalledWith('route', { speed_coloring: { ...data.speed_coloring, enabled: true } })
+    data.speed_coloring.enabled = true
     view.rerender(<RouteMapWidgetEditor {...props} />)
-    expect(screen.getByRole('group', { name: 'Gradient stops' })).toBeTruthy()
     expect(screen.queryByText('Finished Color')).toBeNull()
     expect(screen.queryByText('Remaining Color')).toBeNull()
+    expect(screen.queryByText('Minimum speed (km/h)')).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Gradient stops' })).toBeNull()
+    expect(screen.queryByText(/leave maximum|missing speed|colour/i)).toBeNull()
     expect(screen.getByText('Finished Opacity')).toBeTruthy()
-    expect(screen.getByText('Remaining Opacity')).toBeTruthy()
-    expect(screen.getByText('Speed Colors: Slow to Fast')).toBeTruthy()
-    expect(screen.queryByText(/colour/i)).toBeNull()
-    const maximum = screen.getByPlaceholderText('Activity maximum')
-    updateWidgetData.mockClear()
+    fireEvent.click(screen.getByText('Custom', { exact: true }))
+    expect(props.updateWidgetData).toHaveBeenLastCalledWith('route', {
+      speed_coloring: { ...data.speed_coloring, mode: 'custom', max_speed_kmh: 72 },
+    })
+    data.speed_coloring = { ...data.speed_coloring, mode: 'custom', max_speed_kmh: 72 }
+    view.rerender(<RouteMapWidgetEditor {...props} />)
+    expect(screen.getByRole('group', { name: 'Gradient stops' })).toBeTruthy()
+    const maximum = screen.getByPlaceholderText('Maximum speed')
+    props.updateWidgetData.mockClear()
     fireEvent.change(maximum, { target: { value: '0' } })
     fireEvent.blur(maximum)
     expect(screen.getByRole('alert').textContent).toContain('greater than minimum')
-    expect(updateWidgetData).not.toHaveBeenCalled()
+    expect(props.updateWidgetData).not.toHaveBeenCalled()
     fireEvent.change(maximum, { target: { value: '' } })
     fireEvent.blur(maximum)
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('alert').textContent).toContain('Enter a speed')
     fireEvent.change(maximum, { target: { value: '45' } })
     fireEvent.blur(maximum)
-    expect(updateWidgetData).toHaveBeenLastCalledWith('route', { speed_coloring: { ...data.speed_coloring, max_speed_kmh: 45 } })
+    expect(props.updateWidgetData).toHaveBeenLastCalledWith('route', { speed_coloring: { ...data.speed_coloring, max_speed_kmh: 45 } })
     data.speed_coloring = { ...data.speed_coloring, max_speed_kmh: 45 }
     view.rerender(<RouteMapWidgetEditor {...props} />)
-    fireEvent.change(maximum, { target: { value: '' } })
-    fireEvent.blur(maximum)
-    expect(updateWidgetData).toHaveBeenLastCalledWith('route', { speed_coloring: { ...data.speed_coloring, max_speed_kmh: null } })
-    // Turning the mode off restores its saved solid colors without changing them.
-    const savedColors = [data.completed_line_color, data.remaining_line_color]
-    data.speed_coloring = { ...data.speed_coloring, enabled: false }
+    fireEvent.click(screen.getByText('Auto', { exact: true }))
+    expect(props.updateWidgetData).toHaveBeenLastCalledWith('route', { speed_coloring: { ...data.speed_coloring, mode: 'auto' } })
+    data.speed_coloring = { ...data.speed_coloring, mode: 'auto' }
+    view.rerender(<RouteMapWidgetEditor {...props} />)
+    expect(screen.queryByPlaceholderText('Maximum speed')).toBeNull()
+    expect(data.speed_coloring.max_speed_kmh).toBe(45)
+    data.speed_coloring.enabled = false
     view.rerender(<RouteMapWidgetEditor {...props} />)
     expect(screen.getByText('Finished Color')).toBeTruthy()
     expect(screen.getByText('Remaining Color')).toBeTruthy()
-    expect(screen.queryByRole('group', { name: 'Gradient stops' })).toBeNull()
-    expect([data.completed_line_color, data.remaining_line_color]).toEqual(savedColors)
-    cleanup()
+  })
+
+  test('Custom edits exact color thresholds without accepting duplicates', () => {
+    const data = defaults()
+    data.speed_coloring = { ...data.speed_coloring, enabled: true, mode: 'custom', max_speed_kmh: 60 }
+    const props = propsFor(data)
+    render(<RouteMapWidgetEditor {...props} />)
+    const threshold = screen.getByDisplayValue('20')
+    fireEvent.change(threshold, { target: { value: '15' } })
+    fireEvent.blur(threshold)
+    const settings = props.updateWidgetData.mock.calls.at(-1)[1].speed_coloring
+    expect(settings.stops[1].offset).toBe(0.25)
+    expect(settings.stops[1].color).toBe(data.speed_coloring.stops[1].color)
+    props.updateWidgetData.mockClear()
+    fireEvent.change(threshold, { target: { value: '0' } })
+    fireEvent.blur(threshold)
+    expect(props.updateWidgetData).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert').textContent).toContain('distinct threshold')
   })
 })
