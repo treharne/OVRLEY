@@ -1,20 +1,21 @@
-# Route speed colouring
+# Route speed coloring
 
-Select a Route Map and enable **Colour route by speed** under Line Styling.
+Select a Route Map and enable **Color Route by Speed** under Line Styling.
 The default palette runs from blue through cyan and yellow to red. Click or drag
-colour stops to edit the colours and their positions; the existing gradient editor
-supports two to five stops. Speed colouring is off by default.
+color stops to edit the colors and their positions; the existing gradient editor
+supports two to five stops. Speed coloring is off by default.
 
 The default range is **0 km/h to the highest valid speed in the entire activity**.
 Leave Maximum speed empty for this automatic maximum, or enter manual minimum
 and maximum speeds (in km/h). Exporting a smaller time range does not recalculate
 the maximum. Each activity has its own automatic range. Values outside a manual
-range clamp to its endpoint colours. Stationary activities use the slow colour.
+range clamp to its endpoint colors. Stationary activities use the slow color.
 
-Both finished and remaining paths use the same historical speed colours, with
+Both finished and remaining paths use the same historical speed colors, with
 their existing independent thickness and opacity. Marker styling is independent.
-Solid Finished/Remaining Color settings remain the fallback wherever speed is
-missing. Missing, negative and non-finite speeds are not converted to zero.
+Finished Color and Remaining Color controls are hidden while speed coloring is
+enabled, and return when it is disabled. Their saved values remain the fallback
+wherever speed is missing. Missing, negative and non-finite speeds are not converted to zero.
 Existing route projection, smoothing and GPS-gap behaviour are unchanged.
 At a crossing, later route segments paint over earlier ones as before.
 
@@ -36,16 +37,16 @@ Templates store an optional `speed_coloring` block on the `course` plot:
 }
 ```
 
-Older templates without this block keep solid colouring, including direct native
+Older templates without this block keep solid coloring, including direct native
 renderer configurations. Frontend template normalization supplies the disabled
 settings so the editor can enable them. The native renderer validates ranges and
-palette colours/offsets at ingress.
+palette colors/offsets at ingress.
 
 The shared widget engine handles app preview and native export. Speed samples
 remain separate from simplified route geometry. Drawing segments split at
 geometric vertices, telemetry samples and palette thresholds, so straight roads
 do not lose speed peaks. Paints and paths are prepared once per layout; the
-remaining route is raster-cached. Contiguous colour polygons share their edges
+remaining route is raster-cached. Contiguous color polygons share their edges
 and are clipped to the rounded route outline. Only the assembled outline is
 antialiased, and opacity is applied once, avoiding dots and cracks between dense
 samples while keeping rounded line ends and progress markers.

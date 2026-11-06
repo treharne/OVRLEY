@@ -16,7 +16,7 @@ beforeAll(async () => {
 })
 const defaults = () => createWidgetDefaults({ type: 'course' }, DEFAULT_GLOBAL_DEFAULTS)
 
-describe('route speed colouring', () => {
+describe('route speed coloring', () => {
   test('older templates get a disabled palette; configured bounds and stops survive save/load', () => {
     const legacy = defaults()
     delete legacy.speed_coloring
@@ -37,7 +37,7 @@ describe('route speed colouring', () => {
     expect(effective.plots[0].speed_coloring).toEqual(settings)
   })
 
-  test('the editor toggles speed colouring and edits an optional maximum and palette', () => {
+  test('the editor toggles speed coloring and edits an optional maximum and palette', () => {
     cleanup()
     const data = defaults()
     const updateWidgetData = vi.fn()
@@ -49,11 +49,19 @@ describe('route speed colouring', () => {
       setNumericField: vi.fn(),
     }
     const view = render(<RouteMapWidgetEditor {...props} />)
-    fireEvent.click(screen.getByRole('switch', { name: 'Colour route by speed' }))
+    expect(screen.getByText('Finished Color')).toBeTruthy()
+    expect(screen.getByText('Remaining Color')).toBeTruthy()
+    fireEvent.click(screen.getByRole('switch', { name: 'Color Route by Speed' }))
     expect(updateWidgetData).toHaveBeenLastCalledWith('route', { speed_coloring: { ...data.speed_coloring, enabled: true } })
     data.speed_coloring = { ...data.speed_coloring, enabled: true }
     view.rerender(<RouteMapWidgetEditor {...props} />)
     expect(screen.getByRole('group', { name: 'Gradient stops' })).toBeTruthy()
+    expect(screen.queryByText('Finished Color')).toBeNull()
+    expect(screen.queryByText('Remaining Color')).toBeNull()
+    expect(screen.getByText('Finished Opacity')).toBeTruthy()
+    expect(screen.getByText('Remaining Opacity')).toBeTruthy()
+    expect(screen.getByText('Speed Colors: Slow to Fast')).toBeTruthy()
+    expect(screen.queryByText(/colour/i)).toBeNull()
     const maximum = screen.getByPlaceholderText('Activity maximum')
     updateWidgetData.mockClear()
     fireEvent.change(maximum, { target: { value: '0' } })
@@ -71,6 +79,14 @@ describe('route speed colouring', () => {
     fireEvent.change(maximum, { target: { value: '' } })
     fireEvent.blur(maximum)
     expect(updateWidgetData).toHaveBeenLastCalledWith('route', { speed_coloring: { ...data.speed_coloring, max_speed_kmh: null } })
+    // Turning the mode off restores its saved solid colors without changing them.
+    const savedColors = [data.completed_line_color, data.remaining_line_color]
+    data.speed_coloring = { ...data.speed_coloring, enabled: false }
+    view.rerender(<RouteMapWidgetEditor {...props} />)
+    expect(screen.getByText('Finished Color')).toBeTruthy()
+    expect(screen.getByText('Remaining Color')).toBeTruthy()
+    expect(screen.queryByRole('group', { name: 'Gradient stops' })).toBeNull()
+    expect([data.completed_line_color, data.remaining_line_color]).toEqual(savedColors)
     cleanup()
   })
 })

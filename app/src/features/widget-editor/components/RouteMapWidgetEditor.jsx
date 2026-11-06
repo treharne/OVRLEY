@@ -124,9 +124,9 @@ export default function RouteMapWidgetEditor({ widget, updateWidgetData, updateW
           />
         </div>
         <div className="flex items-center justify-between gap-2">
-          <Label className="text-xs text-muted-foreground">{t('widget-editor.routeSpeedColoring', 'Colour route by speed')}</Label>
+          <Label className="text-xs text-muted-foreground">{t('widget-editor.routeSpeedColoring', 'Color Route by Speed')}</Label>
           <ToggleField
-            label={t('widget-editor.routeSpeedColoring', 'Colour route by speed')}
+            label={t('widget-editor.routeSpeedColoring', 'Color Route by Speed')}
             checked={speedColoring.enabled}
             onCheckedChange={(enabled) => {
               setSpeedRangeError(null)
@@ -163,34 +163,36 @@ export default function RouteMapWidgetEditor({ widget, updateWidgetData, updateW
             <p className="text-xs text-muted-foreground">
               {t(
                 'widget-editor.routeSpeedRangeHelp',
-                'Leave maximum empty to use the highest speed in the full activity. Missing speed uses the solid route colours.',
+                'Leave maximum empty to use the highest speed in the full activity. Missing speed uses the saved solid route colors.',
               )}
             </p>
             <GradientPicker
-              label={t('widget-editor.routeSpeedPalette', 'Speed colours: slow to fast')}
+              label={t('widget-editor.routeSpeedPalette', 'Speed Colors: Slow to Fast')}
               stops={speedColoring.stops}
               onChange={(stops) => updateWidgetDraft(widget.id, { speed_coloring: { ...speedColoring, stops } })}
               onCommit={() => commitWidgetDraft(widget.id)}
             />
           </div>
         ) : null}
-        <div className="grid grid-cols-2 gap-4">
-          <ColorField
-            label={t('widget-editor.finishedColor', 'Finished Color')}
-            value={widget.data.completed_line_color || getThemeColor('ice')}
-            onChange={(value) =>
-              updateWidgetData(widget.id, {
-                completed_line_color: value,
-                color: value,
-              })
-            }
-          />
-          <ColorField
-            label={t('widget-editor.remainingColor', 'Remaining Color')}
-            value={widget.data.remaining_line_color || getThemeColor('teal')}
-            onChange={(value) => updateWidgetData(widget.id, { remaining_line_color: value })}
-          />
-        </div>
+        {!speedColoring.enabled ? (
+          <div className="grid grid-cols-2 gap-4">
+            <ColorField
+              label={t('widget-editor.finishedColor', 'Finished Color')}
+              value={widget.data.completed_line_color || getThemeColor('ice')}
+              onChange={(value) =>
+                updateWidgetData(widget.id, {
+                  completed_line_color: value,
+                  color: value,
+                })
+              }
+            />
+            <ColorField
+              label={t('widget-editor.remainingColor', 'Remaining Color')}
+              value={widget.data.remaining_line_color || getThemeColor('teal')}
+              onChange={(value) => updateWidgetData(widget.id, { remaining_line_color: value })}
+            />
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-4">
           <SliderField
             editable
